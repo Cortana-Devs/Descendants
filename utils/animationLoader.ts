@@ -19,6 +19,8 @@ import {
   generateAnimationTags,
   shouldAnimationLoop
 } from './animationUtils'
+import { animationErrorHandler } from './animationErrorHandler'
+import { fallbackAnimationSystem } from './animationFallbackSystem'
 
 /**
  * Default configuration for animation loader
@@ -108,7 +110,21 @@ export class AnimationLoader {
 
       return gltf
     } catch (error) {
-      this.handleLoadError(error as Error, path)
+      const recovery = await this.handleLoadError(error as Error, path)
+      
+      // Try fallback asset if available
+      if (recovery.fallbackAsset && !recovery.shouldRetry) {
+        try {
+          const fallbackGLTF = await this.loadGLTFWithRetry(recovery.fallbackAsset)
+          this.cacheAvatar(path, fallbackGLTF) // Cache under original path
+          return fallbackGLTF
+        } catch (fallbackError) {
+          if (this.config.enableLogging) {
+            console.warn(`⚠️ Fallback asset also failed: ${recovery.fallbackAsset}`)
+          }
+        }
+      }
+      
       throw error
     } finally {
       this.cache.loadingPromises.delete(cacheKey)
@@ -217,7 +233,31 @@ export class AnimationLoader {
       
       return clip
     } catch (error) {
-      this.handleLoadError(error as Error, path)
+      const recovery = await this.handleLoadError(error as Error, path)
+      
+      // Try fallback asset if available
+      if (recovery.fallbackAsset && !recovery.shouldRetry) {
+        try {
+          const fallbackGLTF = await this.loadGLTFWithRetry(recovery.fallbackAsset)
+          if (fallbackGLTF.animations && fallbackGLTF.animations.length > 0) {
+            const clip = fallbackGLTF.animations[0]
+            this.cacheClip(path, clip) // Cache under original path
+            return clip
+          }
+        } catch (fallbackError) {
+          if (this.config.enableLogging) {
+            console.warn(`⚠️ Fallback asset also failed: ${recovery.fallbackAsset}`)
+          }
+        }
+      }
+      
+      // Use procedural fallback if available
+      if (recovery.fallbackClip) {
+        const clipName = extractClipName(path)
+        this.cache.clips.set(clipName, recovery.fallbackClip)
+        return recovery.fallbackClip
+      }
+      
       return null
     } finally {
       this.cache.loadingPromises.delete(cacheKey)
@@ -477,9 +517,13 @@ export class AnimationLoader {
   }
 
   /**
-   * Handle loading errors
+   * Handle loading errors with comprehensive error handling
    */
-  handleLoadError(error: Error, assetPath: string): void {
+  async handleLoadError(error: Error, assetPath: string): Promise<{
+    shouldRetry: boolean
+    fallbackAsset?: string
+    fallbackClip?: AnimationClip
+  }> {
     const animationError = (error as any).type 
       ? error as AnimationError
       : createAnimationError(
@@ -487,6 +531,9 @@ export class AnimationLoader {
           AnimationLoadError.NETWORK_ERROR,
           assetPath
         )
+
+    // Use comprehensive error handler
+    const recovery = await animationErrorHandler.handleLoadError(animationError, assetPath)
 
     if (this.config.enableLogging) {
       console.error(`❌ Animation load error for ${assetPath}:`, animationError)
@@ -499,6 +546,41 @@ export class AnimationLoader {
       metadata.isValid = false
       metadata.errors.push(animationError.message)
     }
+
+    // Generate fallback clip if needed
+    let fallbackClip: AnimationClip | undefined
+    if (!recovery.fallbackAsset && !recovery.shouldRetry) {
+      // Generate procedural fallback animation
+      const animationName = extractClipName(assetPath)
+      const animationState = this.mapAnimationNameToState(animationName)
+      if (animationState) {
+        fallbackClip = fallbackAnimationSystem.generateFallbackAnimation(animationState)
+      }
+    }
+
+    return {
+      shouldRetry: recovery.shouldRetry,
+      fallbackAsset: recovery.fallbackAsset,
+      fallbackClip
+    }
+  }
+
+  /**
+   * Map animation file name to animation state for fallback generation
+   */
+  private mapAnimationNameToState(animationName: string): 'idle' | 'walking' | 'running' | 'jumping' | 'building' | 'thinking' | 'communicating' | 'celebrating' | null {
+    const lowerName = animationName.toLowerCase()
+    
+    if (lowerName.includes('idle') || lowerName.includes('tpose')) return 'idle'
+    if (lowerName.includes('walk')) return 'walking'
+    if (lowerName.includes('run')) return 'running'
+    if (lowerName.includes('jump')) return 'jumping'
+    if (lowerName.includes('build') || lowerName.includes('expression')) return 'building'
+    if (lowerName.includes('talk') || lowerName.includes('communicate')) return 'communicating'
+    if (lowerName.includes('dance') || lowerName.includes('celebrate')) return 'celebrating'
+    if (lowerName.includes('think')) return 'thinking'
+    
+    return 'idle' // Default fallback
   }
 
   /**

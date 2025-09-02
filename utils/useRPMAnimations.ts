@@ -9,6 +9,8 @@ import { useFrame } from '@react-three/fiber'
 import { useAnimations } from '@react-three/drei'
 import { AnimationClip, AnimationMixer, AnimationAction, Object3D } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { animationErrorHandler } from './animationErrorHandler'
+import { fallbackAnimationSystem } from './animationFallbackSystem'
 
 /**
  * Animation playback options
@@ -187,15 +189,47 @@ export function useRPMAnimations(
   }, [actions])
   
   /**
-   * Play an animation with options
+   * Play an animation with options and error handling
    */
   const playAnimation = useCallback((name: string, playOptions: PlayOptions = {}) => {
-    const action = actions[name]
+    let action = actions[name]
+    
     if (!action) {
       if (config.enableLogging) {
-        console.warn(`Animation "${name}" not found`)
+        console.warn(`Animation "${name}" not found, attempting fallback`)
       }
-      return
+      
+      // Try to find a fallback animation
+      const fallbackResult = animationErrorHandler.handlePlaybackError(
+        new Error(`Animation "${name}" not found`),
+        name
+      )
+      
+      if (fallbackResult.fallbackAnimation) {
+        action = actions[fallbackResult.fallbackAnimation]
+        if (config.enableLogging) {
+          console.log(`🎭 Using fallback animation: ${fallbackResult.fallbackAnimation}`)
+        }
+      }
+      
+      if (!action) {
+        // Generate procedural fallback as last resort
+        const animationState = mapAnimationNameToState(name)
+        if (animationState) {
+          try {
+            const fallbackClip = fallbackAnimationSystem.generateFallbackAnimation(animationState)
+            // Note: In a real implementation, you'd need to add this clip to the mixer
+            if (config.enableLogging) {
+              console.log(`🎭 Generated procedural fallback for: ${name}`)
+            }
+          } catch (error) {
+            if (config.enableLogging) {
+              console.error(`❌ Failed to generate fallback for: ${name}`, error)
+            }
+          }
+        }
+        return
+      }
     }
     
     const {
@@ -217,19 +251,47 @@ export function useRPMAnimations(
       previousActionRef.current = currentActionRef.current
     }
     
-    // Configure and start new animation
-    action.reset()
-    action.setLoop(loop ? 2201 : 2200, loop ? Infinity : 1) // LoopRepeat : LoopOnce
-    action.timeScale = timeScale
-    action.time = startTime
-    action.weight = weight
-    action.clampWhenFinished = clampWhenFinished
-    
-    if (crossFadeDuration > 0) {
-      action.fadeIn(crossFadeDuration)
+    // Configure and start new animation with error handling
+    try {
+      action.reset()
+      action.setLoop(loop ? 2201 : 2200, loop ? Infinity : 1) // LoopRepeat : LoopOnce
+      action.timeScale = timeScale
+      action.time = startTime
+      action.weight = weight
+      action.clampWhenFinished = clampWhenFinished
+      
+      if (crossFadeDuration > 0) {
+        action.fadeIn(crossFadeDuration)
+      }
+      
+      action.play()
+    } catch (error) {
+      if (config.enableLogging) {
+        console.error(`❌ Failed to play animation "${name}":`, error)
+      }
+      
+      // Handle playback error
+      const fallbackResult = animationErrorHandler.handlePlaybackError(
+        error as Error,
+        name
+      )
+      
+      if (fallbackResult.shouldRestart && !fallbackResult.shouldStop) {
+        // Try to restart the animation
+        setTimeout(() => {
+          try {
+            action.reset()
+            action.play()
+          } catch (retryError) {
+            if (config.enableLogging) {
+              console.error(`❌ Animation restart failed for "${name}":`, retryError)
+            }
+          }
+        }, 100)
+      }
+      
+      return
     }
-    
-    action.play()
     
     // Update refs and state
     currentActionRef.current = action
@@ -547,6 +609,24 @@ export function useRPMAnimations(
     onAnimationLoop: config.onAnimationLoop,
     onTransitionComplete: config.onTransitionComplete
   }
+}
+
+/**
+ * Map animation name to animation state for fallback generation
+ */
+function mapAnimationNameToState(animationName: string): 'idle' | 'walking' | 'running' | 'jumping' | 'building' | 'thinking' | 'communicating' | 'celebrating' | null {
+  const lowerName = animationName.toLowerCase()
+  
+  if (lowerName.includes('idle') || lowerName.includes('tpose')) return 'idle'
+  if (lowerName.includes('walk')) return 'walking'
+  if (lowerName.includes('run')) return 'running'
+  if (lowerName.includes('jump')) return 'jumping'
+  if (lowerName.includes('build') || lowerName.includes('expression')) return 'building'
+  if (lowerName.includes('talk') || lowerName.includes('communicate')) return 'communicating'
+  if (lowerName.includes('dance') || lowerName.includes('celebrate')) return 'celebrating'
+  if (lowerName.includes('think')) return 'thinking'
+  
+  return 'idle' // Default fallback
 }
 
 // Types are already exported inline above

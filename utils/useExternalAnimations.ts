@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { AnimationClip } from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { extractClipName, getDefaultAnimationPaths } from './animationUtils'
+import { animationErrorHandler } from './animationErrorHandler'
+import { fallbackAnimationSystem } from './animationFallbackSystem'
 
 /**
  * Hook state interface
@@ -18,6 +20,9 @@ interface UseExternalAnimationsState {
   loadedCount: number
   totalCount: number
   progress: number
+  fallbacksUsed: number
+  errorCount: number
+  lastErrorMessage?: string
 }
 
 /**
@@ -77,7 +82,9 @@ export function useExternalAnimations(
     error: null,
     loadedCount: 0,
     totalCount: animationPaths.length,
-    progress: 0
+    progress: 0,
+    fallbacksUsed: 0,
+    errorCount: 0
   })
 
   // Refs to track component lifecycle
@@ -172,8 +179,53 @@ export function useExternalAnimations(
           console.warn(`❌ Failed to load animation from ${path}:`, error)
         }
 
+        // Use comprehensive error handling
+        const recovery = await animationErrorHandler.handleLoadError(error as Error, path)
+        
+        // Try fallback asset first
+        if (recovery.fallbackAsset && !recovery.shouldRetry) {
+          try {
+            const fallbackGLTF = await new Promise<GLTF>((resolveLoad, rejectLoad) => {
+              loaderRef.current!.load(recovery.fallbackAsset!, resolveLoad, undefined, rejectLoad)
+            })
+            
+            if (fallbackGLTF.animations && fallbackGLTF.animations.length > 0) {
+              const fallbackClip = fallbackGLTF.animations[0]
+              if (config.enableCaching) {
+                globalAnimationCache.set(clipName, fallbackClip)
+              }
+              resolve(fallbackClip)
+              return
+            }
+          } catch (fallbackError) {
+            if (config.enableLogging) {
+              console.warn(`⚠️ Fallback asset also failed: ${recovery.fallbackAsset}`)
+            }
+          }
+        }
+
+        // Generate procedural fallback animation
+        const animationState = mapPathToAnimationState(path)
+        if (animationState) {
+          try {
+            const fallbackClip = fallbackAnimationSystem.generateFallbackAnimation(animationState)
+            if (config.enableCaching) {
+              globalAnimationCache.set(clipName, fallbackClip)
+            }
+            if (config.enableLogging) {
+              console.log(`🎭 Using procedural fallback for ${clipName}`)
+            }
+            resolve(fallbackClip)
+            return
+          } catch (fallbackError) {
+            if (config.enableLogging) {
+              console.warn(`⚠️ Procedural fallback failed for ${clipName}`)
+            }
+          }
+        }
+
         // Retry logic
-        if (config.enableRetry && attempt < config.retryAttempts) {
+        if (config.enableRetry && attempt < config.retryAttempts && recovery.shouldRetry) {
           if (config.enableLogging) {
             console.log(`🔄 Retrying load for ${path} (attempt ${attempt + 1}/${config.retryAttempts})`)
           }
@@ -215,7 +267,9 @@ export function useExternalAnimations(
       error: null,
       loadedCount: 0,
       totalCount: animationPaths.length,
-      progress: 0
+      progress: 0,
+      fallbacksUsed: 0,
+      errorCount: 0
     }))
 
     try {
@@ -240,6 +294,14 @@ export function useExternalAnimations(
               if (clip) {
                 const clipName = extractClipName(path)
                 clipMap.set(clipName, clip)
+                
+                // Check if this is a fallback clip
+                const isFallback = clip.name?.includes('fallback') || false
+                if (isFallback) {
+                  setState(prev => ({ ...prev, fallbacksUsed: prev.fallbacksUsed + 1 }))
+                }
+              } else {
+                setState(prev => ({ ...prev, errorCount: prev.errorCount + 1 }))
               }
               
               loadedCount++
@@ -255,6 +317,11 @@ export function useExternalAnimations(
               if (config.enableLogging) {
                 console.warn(`Failed to load ${path}:`, error)
               }
+              setState(prev => ({ 
+                ...prev, 
+                errorCount: prev.errorCount + 1,
+                lastErrorMessage: (error as Error).message
+              }))
               loadedCount++
             }
           }
@@ -322,6 +389,24 @@ export function useExternalAnimations(
   }, [loadAnimations])
 
   return state
+}
+
+/**
+ * Map animation file path to animation state for fallback generation
+ */
+function mapPathToAnimationState(path: string): 'idle' | 'walking' | 'running' | 'jumping' | 'building' | 'thinking' | 'communicating' | 'celebrating' | null {
+  const filename = path.toLowerCase()
+  
+  if (filename.includes('idle') || filename.includes('tpose')) return 'idle'
+  if (filename.includes('walk')) return 'walking'
+  if (filename.includes('run')) return 'running'
+  if (filename.includes('jump')) return 'jumping'
+  if (filename.includes('build') || filename.includes('expression')) return 'building'
+  if (filename.includes('talk') || filename.includes('communicate')) return 'communicating'
+  if (filename.includes('dance') || filename.includes('celebrate')) return 'celebrating'
+  if (filename.includes('think')) return 'thinking'
+  
+  return 'idle' // Default fallback
 }
 
 /**

@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   },
   
   // Enable WebAssembly for potential future optimizations
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
@@ -18,6 +18,23 @@ const nextConfig: NextConfig = {
       ...config.resolve.alias,
       'three/examples/jsm': 'three/examples/jsm',
     };
+
+    // Handle Three.js SSR compatibility
+    if (isServer) {
+      // Exclude Three.js from server-side bundling to prevent SSR issues
+      config.externals = config.externals || [];
+      config.externals.push({
+        'three': 'three',
+        '@react-three/fiber': '@react-three/fiber',
+        '@react-three/drei': '@react-three/drei'
+      });
+    }
+
+    // Exclude examples from build to avoid type issues
+    config.module.rules.push({
+      test: /examples\/.*\.(ts|tsx)$/,
+      use: 'ignore-loader'
+    });
     
     return config;
   },

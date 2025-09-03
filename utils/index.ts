@@ -13,9 +13,19 @@ export * from "../types/blocks";
 export * from "./animationUtils";
 export * from "./animationLoader";
 export * from "./useExternalAnimations";
-export * from "./useRPMAnimations";
-export * from "./animationController";
-export * from "./useAnimationController";
+// Export animation hooks with specific exports to avoid conflicts
+export { useRPMAnimations } from "./useRPMAnimations";
+export type { 
+  PlayOptions, 
+  TransitionOptions, 
+  AnimationManager, 
+  UseRPMAnimationsOptions 
+} from "./useRPMAnimations";
+
+export { AnimationController, ENHANCED_ANIMATION_MAPPING, DEFAULT_TRANSITIONS, STATE_TRANSITIONS } from "./animationController";
+export type { AnimationState as ControllerAnimationState, TransitionConfig, AnimationMapping, BlendAnimation, StateTransition } from "./animationController";
+
+export { useAnimationController } from "./useAnimationController";
 
 // Export performance optimization utilities
 export * from "./performanceMonitor";

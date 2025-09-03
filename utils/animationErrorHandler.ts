@@ -8,6 +8,17 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { AnimationLoadError, type AnimationError } from '../types/animations'
 
 /**
+ * Extended Performance interface for memory usage tracking
+ */
+interface PerformanceWithMemory extends Performance {
+  memory: {
+    usedJSHeapSize: number
+    totalJSHeapSize: number
+    jsHeapSizeLimit: number
+  }
+}
+
+/**
  * Error severity levels
  */
 export enum ErrorSeverity {
@@ -640,8 +651,8 @@ export class AnimationErrorHandler {
   }
 
   private getMemoryUsage(): number {
-    if ('memory' in performance && (performance as any).memory) {
-      return (performance as any).memory.usedJSHeapSize
+    if ('memory' in performance && (performance as PerformanceWithMemory).memory) {
+      return (performance as PerformanceWithMemory).memory.usedJSHeapSize
     }
     return 0
   }

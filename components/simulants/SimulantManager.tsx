@@ -7,7 +7,6 @@ import { AISimulant } from "../../types";
 
 // Simulant manager configuration
 interface SimulantManagerProps {
-  enableAnimations?: boolean;
   enableGridSnap?: boolean;
   maxSimulants?: number;
   lodEnabled?: boolean;
@@ -30,7 +29,6 @@ const PERFORMANCE_CONFIG = {
 } as const;
 
 export default function SimulantManager({
-  enableAnimations = true,
   enableGridSnap = true,
   maxSimulants = PERFORMANCE_CONFIG.maxSimulants,
 }: SimulantManagerProps) {
@@ -77,11 +75,18 @@ export default function SimulantManager({
   return (
     <group name="simulant-manager">
       {/* Render active simulants */}
-      {activeSimulants.map((simulant) => (
+      {activeSimulants.map((simulant, index) => (
         <ReadyPlayerMeSimulant
           key={simulant.id}
-          simulant={simulant}
-          enableAnimations={enableAnimations}
+          simulant={{
+            ...simulant,
+            // Ensure each simulant has a unique position to avoid overlap
+            position: {
+              x: simulant.position.x + (index * 0.1), // Small offset to prevent exact overlap
+              y: simulant.position.y,
+              z: simulant.position.z + (index * 0.1)
+            }
+          }}
           enableGridSnap={enableGridSnap}
           scale={0.8} // Slightly smaller than blocks for better proportion
         />

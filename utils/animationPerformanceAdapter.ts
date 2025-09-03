@@ -4,7 +4,7 @@
  */
 
 import { Vector3 } from 'three'
-import { PerformanceMonitor, QualityLevel, QUALITY_PRESETS } from './performanceMonitor'
+import { PerformanceMonitor, QualityLevel, QUALITY_PRESETS, type PerformanceMetrics } from './performanceMonitor'
 import { animationErrorHandler } from './animationErrorHandler'
 
 /**
@@ -422,7 +422,7 @@ export class AnimationPerformanceAdapter {
   }
 
   private evaluateAdaptationNeeds(
-    metrics: any,
+    metrics: PerformanceMetrics,
     force: boolean = false
   ): AdaptationResult {
     const needsAdaptation = force || 
@@ -502,7 +502,7 @@ export class AnimationPerformanceAdapter {
     }
   }
 
-  private determineRecommendedQuality(metrics: any): 'high' | 'medium' | 'low' {
+  private determineRecommendedQuality(metrics: PerformanceMetrics): 'high' | 'medium' | 'low' {
     if (metrics.averageFrameRate < 20 || metrics.memoryUsage > this.adaptationSettings.memoryThreshold) {
       return 'low'
     } else if (metrics.averageFrameRate < 40 || metrics.memoryUsage > this.adaptationSettings.memoryThreshold * 0.7) {
@@ -559,7 +559,7 @@ export class AnimationPerformanceAdapter {
 export interface AdaptationResult {
   needsAdaptation: boolean
   adaptations: AdaptationAction[]
-  currentMetrics: any
+  currentMetrics: PerformanceMetrics
   recommendedQuality: 'high' | 'medium' | 'low'
   timestamp: number
 }

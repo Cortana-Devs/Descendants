@@ -2,6 +2,9 @@
  * Animation utility functions for Ready Player Me animation system
  */
 
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { Object3D, AnimationClip, KeyframeTrack, Mesh, Material, Texture } from 'three'
+
 /**
  * Extract meaningful animation name from file path
  * Maps Mixamo file names to semantic animation names
@@ -143,33 +146,39 @@ export function getDefaultAnimationPaths(): string[] {
 /**
  * Calculate memory usage estimate for GLTF asset
  */
-export function estimateAssetSize(gltf: any): number {
+export function estimateAssetSize(gltf: GLTF): number {
   let size = 0
   
   // Estimate based on geometry and texture data
   if (gltf.scene) {
-    gltf.scene.traverse((child: any) => {
-      if (child.geometry) {
+    gltf.scene.traverse((child: Object3D) => {
+      if (child instanceof Mesh && child.geometry) {
         // Rough estimate: vertices * attributes * 4 bytes per float
         const vertices = child.geometry.attributes.position?.count || 0
         const attributes = Object.keys(child.geometry.attributes).length
         size += vertices * attributes * 4
       }
       
-      if (child.material && child.material.map) {
-        // Rough estimate for texture: width * height * 4 bytes per pixel
-        const texture = child.material.map
-        if (texture.image) {
-          size += (texture.image.width || 512) * (texture.image.height || 512) * 4
-        }
+      if (child instanceof Mesh && child.material) {
+        // Handle both single materials and material arrays
+        const materials = Array.isArray(child.material) ? child.material : [child.material]
+        materials.forEach((material: Material) => {
+          if ('map' in material && material.map instanceof Texture) {
+            // Rough estimate for texture: width * height * 4 bytes per pixel
+            const texture = material.map
+            if (texture.image) {
+              size += (texture.image.width || 512) * (texture.image.height || 512) * 4
+            }
+          }
+        })
       }
     })
   }
   
   // Add animation data size
   if (gltf.animations) {
-    gltf.animations.forEach((animation: any) => {
-      animation.tracks.forEach((track: any) => {
+    gltf.animations.forEach((animation: AnimationClip) => {
+      animation.tracks.forEach((track: KeyframeTrack) => {
         // Estimate: keyframes * 4 bytes per float * components
         size += (track.times?.length || 0) * 4
         size += (track.values?.length || 0) * 4

@@ -7,7 +7,7 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { AnimationController, AnimationState } from './animationController'
 import { AnimationManager } from './useRPMAnimations'
-import type { AISimulant } from '../types'
+import type { AISimulant } from '../types/index'
 
 /**
  * Animation controller hook options
@@ -47,7 +47,7 @@ export interface AnimationControllerInterface {
   removeBlendAnimation: (name: string, fadeOut?: number) => void
   
   // Debug and monitoring
-  getDebugInfo: () => any
+  getDebugInfo: () => Record<string, unknown> | null
   getAvailableStates: () => AnimationState[]
 }
 
@@ -130,10 +130,15 @@ export function useAnimationController(
         const newState = controllerRef.current.mapActionToAnimationState(currentAction)
         
         if (config.enableLogging) {
-          console.log(`🎯 Action "${currentAction}" mapped to state: ${newState}`)
+          console.log(`🎯 Simulant ${simulant.id}: Action "${currentAction}" mapped to state: ${newState}`)
+          console.log(`🎮 Current controller state:`, controllerRef.current.getCurrentState())
         }
         
-        controllerRef.current.transitionTo(newState)
+        const transitionResult = controllerRef.current.transitionTo(newState)
+        
+        if (config.enableLogging) {
+          console.log(`🔄 Transition result for ${simulant.id}:`, transitionResult ? 'SUCCESS' : 'FAILED')
+        }
       }
     }, config.transitionDelay)
 
@@ -142,7 +147,7 @@ export function useAnimationController(
         clearTimeout(transitionTimeoutRef.current)
       }
     }
-  }, [simulant.lastAction, config.autoTransition, config.transitionDelay, config.enableLogging])
+  }, [simulant.lastAction, simulant.id, config.autoTransition, config.transitionDelay, config.enableLogging])
 
   // Update controller state
   const updateControllerState = useCallback(() => {

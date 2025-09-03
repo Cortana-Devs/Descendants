@@ -37,6 +37,8 @@ import CameraController, { CAMERA_PRESETS } from "./CameraController";
 import CameraControls from "./CameraControls";
 import SimulantManager from "../simulants/SimulantManager";
 import SimulantControls from "../simulants/SimulantControls";
+import SafeAnimationTestControls from "../simulants/SafeAnimationTestControls";
+import AnimationSystemTest from "../simulants/AnimationSystemTest";
 
 // LOD Configuration for performance optimization
 interface LODConfig {
@@ -810,7 +812,6 @@ function SceneContent({
 
       {/* AI Simulant System */}
       <SimulantManager 
-        enableAnimations={true}
         enableGridSnap={gridConfig.snapToGrid}
         maxSimulants={10}
         lodEnabled={true}
@@ -981,6 +982,12 @@ export default function VoxelCanvas({
       
       {/* Simulant Controls */}
       <SimulantControls maxSimulants={10} />
+      
+      {/* Animation Test Controls */}
+      <SafeAnimationTestControls showAdvanced={true} />
+      
+      {/* Animation System Test (Development Only) */}
+      {process.env.NODE_ENV === "development" && <AnimationSystemTest />}
       
       {/* Fly mode indicator */}
       {cameraMode === "fly" && (

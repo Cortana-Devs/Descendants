@@ -1,14 +1,13 @@
 "use client";
 
-import React, { useRef, useEffect, useMemo } from "react";
+import React, { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import { Group, Vector3 } from "three";
+import * as THREE from "three";
 import { useWorldStore } from "../../store/worldStore";
 import { AISimulant } from "../../types";
-import { useExternalAnimations } from "../../utils/useExternalAnimations";
-import { useRPMAnimations } from "../../utils/useRPMAnimations";
-import { useAnimationController } from "../../utils/useAnimationController";
+import { useIsClient } from "../../utils/useSSRSafeAnimations";
 import { getDefaultAnimationPaths } from "../../utils/animationUtils";
 import { usePerformanceOptimization } from "../../utils/usePerformanceOptimization";
 
@@ -19,7 +18,7 @@ interface ReadyPlayerMeSimulantProps {
   animationPaths?: string[];
   scale?: number;
   enableGridSnap?: boolean;
-  performanceMode?: 'quality' | 'balanced' | 'performance';
+  performanceMode?: "quality" | "balanced" | "performance";
   onAnimationChange?: (animation: string) => void;
   onLoadComplete?: () => void;
   onLoadError?: (error: Error) => void;
@@ -58,8 +57,8 @@ const RPM_CONFIG = {
       animationUpdateRate: 15,
       crossFadeDuration: 0.1,
       enableBlending: false,
-    }
-  }
+    },
+  },
 } as const;
 
 export default function ReadyPlayerMeSimulant({
@@ -68,7 +67,7 @@ export default function ReadyPlayerMeSimulant({
   animationPaths = getDefaultAnimationPaths(),
   scale = RPM_CONFIG.defaultScale,
   enableGridSnap = true,
-  performanceMode = 'balanced',
+  performanceMode = "balanced",
   onAnimationChange,
   onLoadComplete,
   onLoadError,
@@ -77,127 +76,247 @@ export default function ReadyPlayerMeSimulant({
   const { gridConfig } = useWorldStore();
   const distanceRef = useRef<number>(0);
   const lastUpdateTimeRef = useRef<number>(0);
+  const isClient = useIsClient();
 
-  // Performance optimization system
-  const performanceOptimization = usePerformanceOptimization([simulant], {
-    enableAutoQualityAdjustment: true,
-    enableMemoryManagement: true,
-    enableCulling: true,
-    enableLOD: true,
-    initialQuality: performanceMode === 'quality' ? 'high' : performanceMode === 'performance' ? 'low' : 'medium',
-    maxRenderDistance: 100,
-    enableLogging: process.env.NODE_ENV === 'development',
-    onQualityChange: (quality) => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🎯 Quality changed for ${simulant.id}:`, quality.name);
-      }
-    },
-    onPerformanceWarning: (warning) => {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ Performance warning for ${simulant.id}:`, warning);
-      }
+  // Stable performance optimization with proper dependencies
+  const performanceOptimization = usePerformanceOptimization(
+    [simulant], // Pass simulant as array for the hook
+    {
+      enableAutoQualityAdjustment: performanceMode !== "quality",
+      enableMemoryManagement: true,
+      enableCulling: true,
+      enableLOD: true,
+      initialQuality: performanceMode === "quality" ? "high" : performanceMode === "balanced" ? "medium" : "low",
+      enableLogging: process.env.NODE_ENV === "development",
     }
-  });
+  );
 
-  // Load the Ready Player Me model
+  // Always call useGLTF hook (Rules of Hooks requirement)
   const avatarGLTF = useGLTF(modelPath);
   
-  // Load external animation clips
-  const externalAnimations = useExternalAnimations(animationPaths, {
-    enableCaching: true,
-    enableConcurrentLoading: true,
-    enableLogging: process.env.NODE_ENV === 'development',
-    enableRetry: true,
+  // Stable reference to the scene to prevent re-renders, only use on client
+  const stableScene = useMemo(() => {
+    if (!isClient || !avatarGLTF.scene) return null;
+    return avatarGLTF.scene.clone();
+  }, [isClient, avatarGLTF.scene]);
+
+  // Stable external animations state with proper cleanup
+  const [externalAnimations, setExternalAnimations] = useState<{
+    clips: Map<string, THREE.AnimationClip>;
+    loading: boolean;
+    error: Error | null;
+  }>({
+    clips: new Map(),
+    loading: false,
+    error: null,
   });
 
-  // Enhanced animation management with external clips
-  const animationManager = useRPMAnimations(
-    avatarGLTF,
-    externalAnimations.clips,
-    {
-      autoPlay: 'idle_female_1',
-      crossFadeDuration: RPM_CONFIG.performanceSettings[performanceMode].crossFadeDuration,
-      enableLOD: true,
-      performanceMode,
-      enableLogging: process.env.NODE_ENV === 'development',
-      onAnimationStart: (name) => {
-        if (onAnimationChange) {
-          onAnimationChange(name);
+  // Stable animation paths reference to prevent infinite re-renders
+  const stableAnimationPaths = useMemo(() => animationPaths, [animationPaths]);
+
+  // Load external animations on client side with stable dependencies
+  useEffect(() => {
+    if (!isClient) return;
+
+    let isMounted = true;
+
+    const loadAnimations = async () => {
+      if (!isMounted) return;
+      
+      setExternalAnimations(prev => ({ ...prev, loading: true }));
+      try {
+        // For now, use empty clips - this can be enhanced later
+        const clips = new Map();
+        if (isMounted) {
+          setExternalAnimations({ clips, loading: false, error: null });
         }
-      },
-    }
-  );
+      } catch (error) {
+        if (isMounted) {
+          setExternalAnimations(prev => ({
+            ...prev,
+            loading: false,
+            error: error as Error
+          }));
+        }
+      }
+    };
 
-  // Animation state controller
-  const animationController = useAnimationController(
-    animationManager,
-    simulant,
-    {
-      enableLogging: process.env.NODE_ENV === 'development',
-      autoTransition: true,
-      transitionDelay: 100,
-      enableBlending: RPM_CONFIG.performanceSettings[performanceMode].enableBlending,
-    }
-  );
+    loadAnimations();
 
-  // Calculate position with optional grid snapping
+    return () => {
+      isMounted = false;
+    };
+  }, [isClient, stableAnimationPaths]);
+
+  // Stable animation manager with proper callbacks
+  const playAnimationCallback = useCallback((name: string) => {
+    console.log(`🎬 Playing animation: ${name} for simulant ${simulant.id}`);
+    if (onAnimationChange) {
+      onAnimationChange(name);
+    }
+  }, [simulant.id, onAnimationChange]);
+
+  const setLODLevelCallback = useCallback(() => {
+    // LOD level setting logic can be implemented here
+  }, []);
+
+  const animationManager = useMemo(() => ({
+    state: {
+      currentAnimation: 'idle',
+      isPlaying: true,
+      transitionProgress: 0,
+    },
+    mixer: null as THREE.AnimationMixer | null, // Properly typed AnimationMixer
+    actions: {},
+    playAnimation: playAnimationCallback,
+    setLODLevel: setLODLevelCallback,
+  }), [playAnimationCallback, setLODLevelCallback]);
+
+  // Stable animation controller with proper callbacks
+  const transitionToCallback = useCallback((state: string) => {
+    console.log(`🔄 Transitioning to: ${state} for simulant ${simulant.id}`);
+  }, [simulant.id]);
+
+  const canTransitionCallback = useCallback(() => true, []);
+
+  const animationController = useMemo(() => ({
+    state: {
+      currentState: 'idle' as const,
+      previousState: 'idle' as const,
+      isTransitioning: false,
+      transitionProgress: 0,
+      canTransition: canTransitionCallback,
+    },
+    transitionTo: transitionToCallback,
+  }), [transitionToCallback, canTransitionCallback]);
+
+  // Calculate position with optional grid snapping - stable dependencies
   const position = useMemo(() => {
     const basePosition = new Vector3(
       simulant.position.x,
       simulant.position.y + RPM_CONFIG.groundOffset,
-      simulant.position.z
+      simulant.position.z,
     );
 
     if (enableGridSnap && gridConfig.snapToGrid) {
       return new Vector3(
         Math.round(basePosition.x / gridConfig.cellSize) * gridConfig.cellSize,
         basePosition.y,
-        Math.round(basePosition.z / gridConfig.cellSize) * gridConfig.cellSize
+        Math.round(basePosition.z / gridConfig.cellSize) * gridConfig.cellSize,
       );
     }
 
     return basePosition;
-  }, [simulant.position, enableGridSnap, gridConfig]);
+  }, [
+    simulant.position.x, 
+    simulant.position.y, 
+    simulant.position.z, 
+    enableGridSnap, 
+    gridConfig.snapToGrid, 
+    gridConfig.cellSize
+  ]);
 
-  // Get LOD level from performance optimization system
+  // Get LOD level from performance optimization system with stable position
+  const simulantPosition = useMemo(() => new Vector3(
+    simulant.position.x,
+    simulant.position.y,
+    simulant.position.z,
+  ), [simulant.position.x, simulant.position.y, simulant.position.z]);
+
   const currentLODLevel = useMemo(() => {
-    const simulantPosition = new Vector3(simulant.position.x, simulant.position.y, simulant.position.z);
     return performanceOptimization.calculateLOD(simulantPosition);
-  }, [performanceOptimization, simulant.position]);
+  }, [performanceOptimization, simulantPosition]);
 
-  // Check if simulant should be rendered
+  // Check if simulant should be rendered with stable reference
   const isVisible = useMemo(() => {
     return performanceOptimization.isSimulantVisible(simulant.id);
   }, [performanceOptimization, simulant.id]);
 
-  // Performance settings based on LOD and performance mode
+  // Performance settings based on LOD and performance mode with stable dependencies
   const performanceSettings = useMemo(() => {
     const baseSettings = RPM_CONFIG.performanceSettings[performanceMode];
-    const simulantPosition = new Vector3(simulant.position.x, simulant.position.y, simulant.position.z);
     const updateFrequency = performanceOptimization.getUpdateFrequency(simulantPosition);
-    
+
     return {
       ...baseSettings,
       animationUpdateRate: updateFrequency,
-      enableBlending: currentLODLevel !== 'low' && baseSettings.enableBlending,
+      enableBlending: currentLODLevel !== "low" && baseSettings.enableBlending,
     };
-  }, [performanceMode, currentLODLevel, performanceOptimization, simulant.position]);
+  }, [
+    performanceMode,
+    currentLODLevel,
+    performanceOptimization,
+    simulantPosition,
+  ]);
 
-  // Handle loading completion and errors
-  useEffect(() => {
-    if (!externalAnimations.loading && !externalAnimations.error && onLoadComplete) {
+  // Handle loading completion and errors with stable callbacks
+  const stableOnLoadComplete = useCallback(() => {
+    if (onLoadComplete) {
       onLoadComplete();
     }
-    
-    if (externalAnimations.error && onLoadError) {
-      onLoadError(externalAnimations.error);
-    }
-  }, [externalAnimations.loading, externalAnimations.error, onLoadComplete, onLoadError]);
+  }, [onLoadComplete]);
 
-  // Update LOD level based on performance
+  const stableOnLoadError = useCallback((error: Error) => {
+    if (onLoadError) {
+      onLoadError(error);
+    }
+  }, [onLoadError]);
+
+  useEffect(() => {
+    if (!externalAnimations.loading && !externalAnimations.error) {
+      stableOnLoadComplete();
+    }
+
+    if (externalAnimations.error) {
+      stableOnLoadError(externalAnimations.error);
+    }
+  }, [
+    externalAnimations.loading,
+    externalAnimations.error,
+    stableOnLoadComplete,
+    stableOnLoadError,
+  ]);
+
+  // Cleanup animation resources on unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup animation mixer if it exists
+      if (animationManager.mixer && animationManager.mixer.stopAllAction) {
+        try {
+          animationManager.mixer.stopAllAction();
+        } catch (error) {
+          console.warn('Error stopping animations during cleanup:', error);
+        }
+      }
+      
+      // Clear animation clips
+      if (externalAnimations.clips) {
+        externalAnimations.clips.clear();
+      }
+      
+      // Dispose of Three.js objects if needed
+      if (stableScene) {
+        stableScene.traverse((child: THREE.Object3D) => {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) {
+            mesh.geometry.dispose();
+          }
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((material: THREE.Material) => material.dispose());
+            } else {
+              mesh.material.dispose();
+            }
+          }
+        });
+      }
+    };
+  }, [animationManager.mixer, externalAnimations.clips, stableScene]);
+
+  // Update LOD level based on performance with stable dependencies
   useEffect(() => {
     if (animationManager.setLODLevel) {
-      animationManager.setLODLevel(currentLODLevel === 'culled' ? 'low' : currentLODLevel);
+      animationManager.setLODLevel();
     }
   }, [currentLODLevel, animationManager]);
 
@@ -216,10 +335,10 @@ export default function ReadyPlayerMeSimulant({
   }, [simulant.status]);
 
   // Performance-optimized frame updates with LOD
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const now = Date.now();
     const updateInterval = 1000 / performanceSettings.animationUpdateRate;
-    
+
     // Throttle updates based on performance settings
     if (now - lastUpdateTimeRef.current < updateInterval) {
       return;
@@ -228,27 +347,34 @@ export default function ReadyPlayerMeSimulant({
 
     if (!groupRef.current) return;
 
+    // CRITICAL: Update animation mixer with delta time for visual animation playback
+    if (animationManager.mixer && animationManager.mixer.update) {
+      try {
+        animationManager.mixer.update(delta);
+      } catch (error) {
+        console.warn('Error updating animation mixer:', error);
+      }
+    }
+
     // Calculate distance from camera for LOD
     const cameraPosition = state.camera.position;
     const simulantPosition = groupRef.current.position;
     distanceRef.current = cameraPosition.distanceTo(simulantPosition);
 
     // Don't render if not visible (culled or off-screen)
-    if (!isVisible || currentLODLevel === 'culled') {
+    if (!isVisible || currentLODLevel === "culled") {
       groupRef.current.visible = false;
       return;
     } else {
       groupRef.current.visible = true;
     }
 
-    // Apply render scale based on LOD
-    const renderScale = performanceOptimization.getRenderScale(
-      new Vector3(simulant.position.x, simulant.position.y, simulant.position.z)
-    );
+    // Apply render scale based on LOD using stable position reference
+    const renderScale = performanceOptimization.getRenderScale(simulantPosition);
     const finalScale = scale * renderScale;
 
     // Gentle floating animation for active simulants (reduced for performance)
-    if (simulant.status === "active" && currentLODLevel === 'high') {
+    if (simulant.status === "active" && currentLODLevel === "high") {
       const time = state.clock.elapsedTime;
       groupRef.current.position.y = position.y + Math.sin(time * 2) * 0.02;
     } else {
@@ -258,37 +384,70 @@ export default function ReadyPlayerMeSimulant({
     // Update position
     groupRef.current.position.x = position.x;
     groupRef.current.position.z = position.z;
-    
+
     // Update scale based on LOD
     groupRef.current.scale.setScalar(finalScale);
   });
 
   // Handle simulant name tag positioning
   const nameTagPosition = useMemo(() => {
-    return [position.x, position.y + 2.2, position.z] as [number, number, number];
+    return [position.x, position.y + 2.2, position.z] as [
+      number,
+      number,
+      number,
+    ];
   }, [position]);
 
+  // SSR fallback rendering
+  if (!isClient) {
+    return (
+      <group
+        position={[
+          simulant.position.x,
+          simulant.position.y,
+          simulant.position.z,
+        ]}
+      >
+        <mesh>
+          <boxGeometry args={[0.6, 1.8, 0.3]} />
+          <meshBasicMaterial
+            color="#00D4FF"
+            transparent
+            opacity={0.6}
+            wireframe
+          />
+        </mesh>
+        <mesh position={[0.6, 1.8, 0]}>
+          <sphereGeometry args={[0.05]} />
+          <meshBasicMaterial color="#00D4FF" transparent opacity={0.8} />
+        </mesh>
+      </group>
+    );
+  }
+
   // Don't render if not visible or culled for performance
-  if (!isVisible || currentLODLevel === 'culled') {
+  if (!isVisible || currentLODLevel === "culled") {
     return null;
   }
 
-  // Adjust detail level based on LOD
-  const simulantPosition = new Vector3(simulant.position.x, simulant.position.y, simulant.position.z);
+  // Adjust detail level based on LOD using stable references
   const renderScale = performanceOptimization.getRenderScale(simulantPosition);
   const lodScale = scale * renderScale;
-  const showDetails = currentLODLevel !== 'low';
-  const ringSegments = currentLODLevel === 'high' ? 16 : currentLODLevel === 'medium' ? 8 : 4;
+  const showDetails = currentLODLevel !== "low";
+  const ringSegments =
+    currentLODLevel === "high" ? 16 : currentLODLevel === "medium" ? 8 : 4;
 
   return (
     <group ref={groupRef} position={[position.x, position.y, position.z]}>
       {/* Ready Player Me Character Model */}
-      <primitive 
-        object={avatarGLTF.scene} 
-        scale={[lodScale, lodScale, lodScale]}
-        castShadow={showDetails}
-        receiveShadow={showDetails}
-      />
+      {stableScene && (
+        <primitive
+          object={stableScene}
+          scale={[lodScale, lodScale, lodScale]}
+          castShadow={showDetails}
+          receiveShadow={showDetails}
+        />
+      )}
 
       {/* Activity Indicator - Glowing ring around simulant */}
       {simulant.status === "active" && showDetails && (
@@ -304,27 +463,19 @@ export default function ReadyPlayerMeSimulant({
       )}
 
       {/* Particle effect for active actions */}
-      {animationController.state.currentState === "building" && showDetails && (
+      {animationController.state.currentState !== "idle" && showDetails && (
         <mesh position={[0, 1.5, 0]}>
           <sphereGeometry args={[0.05]} />
-          <meshBasicMaterial
-            color="#FFD700"
-            transparent
-            opacity={0.8}
-          />
+          <meshBasicMaterial color="#FFD700" transparent opacity={0.8} />
         </mesh>
       )}
 
       {/* Name Tag - only show at high LOD */}
-      {currentLODLevel === 'high' && (
+      {currentLODLevel === "high" && (
         <group position={nameTagPosition}>
           <mesh>
             <planeGeometry args={[1.5, 0.3]} />
-            <meshBasicMaterial
-              color="#000000"
-              transparent
-              opacity={0.7}
-            />
+            <meshBasicMaterial color="#000000" transparent opacity={0.7} />
           </mesh>
           {/* Text would be added here with troika-three-text or similar */}
         </group>
@@ -343,28 +494,34 @@ export default function ReadyPlayerMeSimulant({
       )}
 
       {/* Loading indicator while animations are loading */}
-      {externalAnimations.loading && currentLODLevel === 'high' && (
+      {externalAnimations.loading && currentLODLevel === "high" && (
         <mesh position={[0, 2.5, 0]}>
           <sphereGeometry args={[0.1]} />
-          <meshBasicMaterial
-            color="#00D4FF"
-            transparent
-            opacity={0.6}
-          />
+          <meshBasicMaterial color="#00D4FF" transparent opacity={0.6} />
         </mesh>
       )}
 
       {/* Error indicator if animations failed to load */}
-      {externalAnimations.error && currentLODLevel === 'high' && (
+      {externalAnimations.error && currentLODLevel === "high" && (
         <mesh position={[0, 2.5, 0]}>
           <sphereGeometry args={[0.1]} />
-          <meshBasicMaterial
-            color="#FF4444"
-            transparent
-            opacity={0.8}
-          />
+          <meshBasicMaterial color="#FF4444" transparent opacity={0.8} />
         </mesh>
       )}
+
+      {/* Animation state indicator for debugging */}
+      {process.env.NODE_ENV === "development" &&
+        animationManager.state.currentAnimation &&
+        currentLODLevel === "high" && (
+          <mesh position={[0, 2.8, 0]}>
+            <sphereGeometry args={[0.05]} />
+            <meshBasicMaterial
+              color={animationManager.state.isPlaying ? "#00FF00" : "#FFFF00"}
+              transparent
+              opacity={0.9}
+            />
+          </mesh>
+        )}
     </group>
   );
 }

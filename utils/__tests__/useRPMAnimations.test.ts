@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { AnimationClip, Object3D } from 'three'
+import { AnimationClip, Object3D, Group } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 // Import the types to test they exist
@@ -152,7 +152,7 @@ describe('Animation Clip Processing Logic', () => {
     })
     
     return {
-      scene: new Object3D(),
+      scene: new Group(),
       scenes: [],
       cameras: [],
       animations,

@@ -3,9 +3,9 @@
  * Integrates LOD system, memory management, culling, and performance monitoring
  */
 
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Vector3 } from 'three'
+import { Vector3, Camera, PerspectiveCamera } from 'three'
 import { PerformanceMonitor, LODCalculator, QualityLevel, QUALITY_PRESETS } from './performanceMonitor'
 import { AnimationMemoryManager, getGlobalMemoryManager } from './animationMemoryManager'
 import { SimulantCullingSystem, createCullingSystem } from './simulantCulling'
@@ -90,14 +90,51 @@ const DEFAULT_OPTIONS: Required<PerformanceOptimizationOptions> = {
 }
 
 /**
- * Performance optimization hook
+ * Hook to safely check if we're inside a React Three Fiber Canvas
+ */
+function useIsInCanvas(): boolean {
+  try {
+    useThree()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Performance optimization hook that works both inside and outside Canvas
  */
 export function usePerformanceOptimization(
   simulants: AISimulant[],
-  options: PerformanceOptimizationOptions = {}
+  options: PerformanceOptimizationOptions = {},
+  camera?: Camera
 ): UsePerformanceOptimizationReturn {
   const config = { ...DEFAULT_OPTIONS, ...options }
-  const { camera } = useThree()
+  const isInCanvas = useIsInCanvas()
+  
+  // Get camera from R3F context only if we're inside a Canvas
+  const r3fCamera = useMemo(() => {
+    if (isInCanvas) {
+      try {
+        const { camera: canvasCamera } = useThree()
+        return canvasCamera
+      } catch {
+        return null
+      }
+    }
+    return null
+  }, [isInCanvas])
+  
+  // Use provided camera or fallback to R3F camera or create a default one
+  const activeCamera = useMemo(() => {
+    if (camera) return camera
+    if (r3fCamera) return r3fCamera
+    
+    // Create a default camera for non-Canvas usage
+    const defaultCamera = new PerspectiveCamera(75, 1, 0.1, 1000)
+    defaultCamera.position.set(0, 0, 5)
+    return defaultCamera
+  }, [camera, r3fCamera])
   
   // Performance systems
   const performanceMonitorRef = useRef<PerformanceMonitor | null>(null)
@@ -181,14 +218,14 @@ export function usePerformanceOptimization(
 
   // Update camera position for LOD and culling
   useEffect(() => {
-    if (lodCalculatorRef.current) {
-      lodCalculatorRef.current.updateCameraPosition(camera.position)
+    if (lodCalculatorRef.current && activeCamera) {
+      lodCalculatorRef.current.updateCameraPosition(activeCamera.position)
     }
     
-    if (cullingSystemRef.current) {
-      cullingSystemRef.current.updateCamera(camera)
+    if (cullingSystemRef.current && activeCamera) {
+      cullingSystemRef.current.updateCamera(activeCamera)
     }
-  }, [camera])
+  }, [activeCamera])
 
   // Update simulants for culling
   useEffect(() => {
@@ -197,8 +234,8 @@ export function usePerformanceOptimization(
     }
   }, [simulants])
 
-  // Performance monitoring frame loop
-  useFrame((_, delta) => {
+  // Performance monitoring frame loop - only use useFrame if in Canvas
+  const frameCallback = useCallback((state: any, delta: number) => {
     // Update performance monitor
     if (performanceMonitorRef.current) {
       performanceMonitorRef.current.update(delta)
@@ -263,7 +300,21 @@ export function usePerformanceOptimization(
         }
       }
     }
-  })
+  }, [simulants, state.frameRate, state.isMemoryPressureHigh, config, warningCooldown])
+
+  // Use useFrame only if we're inside a Canvas
+  if (isInCanvas) {
+    useFrame(frameCallback)
+  } else {
+    // For non-Canvas usage, use a manual update loop
+    useEffect(() => {
+      const interval = setInterval(() => {
+        frameCallback(null as any, 1/60) // Simulate 60fps
+      }, 1000/60)
+      
+      return () => clearInterval(interval)
+    }, [frameCallback])
+  }
 
   // Quality control functions
   const setQuality = useCallback((quality: 'high' | 'medium' | 'low') => {

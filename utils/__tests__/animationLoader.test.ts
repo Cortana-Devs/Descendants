@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AnimationClip, Object3D, SkinnedMesh, Bone } from 'three'
+import { AnimationClip, Object3D, SkinnedMesh, Bone, Group } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 // Create a mock AnimationLoader class for testing core functionality
@@ -197,34 +197,24 @@ describe('AnimationLoader Core Functionality', () => {
 
 // Helper function to create mock GLTF
 function createMockGLTF(hasSkeleton: boolean, hasAnimations: boolean): GLTF {
-  const mockScene = {
-    traverse: (callback: (child: any) => void) => {
-      if (hasSkeleton) {
-        const mockSkinnedMesh = {
-          skeleton: {
-            bones: new Array(60).fill(null).map(() => new Bone())
-          }
-        }
-        
-        callback(mockSkinnedMesh)
+  const mockScene = new Group()
+  
+  if (hasSkeleton) {
+    const mockSkinnedMesh = {
+      skeleton: {
+        bones: new Array(60).fill(null).map(() => new Bone())
       }
     }
-  } as any
+    
+    // Add the mock to the scene's children for traverse to find it
+    Object.defineProperty(mockScene, 'children', {
+      value: [mockSkinnedMesh],
+      configurable: true
+    })
+  }
 
   const mockAnimations = hasAnimations ? [
-    {
-      name: 'TestAnimation',
-      duration: 1.0,
-      tracks: [],
-      blendMode: 2500,
-      uuid: 'test-uuid',
-      resetDuration: () => {},
-      trim: () => {},
-      validate: () => true,
-      optimize: () => {},
-      clone: () => ({} as any),
-      toJSON: () => ({})
-    } as AnimationClip
+    new AnimationClip('TestAnimation', 1.0, [])
   ] : []
 
   return {
@@ -233,7 +223,7 @@ function createMockGLTF(hasSkeleton: boolean, hasAnimations: boolean): GLTF {
     scenes: [mockScene],
     cameras: [],
     asset: {},
-    parser: {} as any,
+    parser: {} as GLTF['parser'],
     userData: {}
   }
 }

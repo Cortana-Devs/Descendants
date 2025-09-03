@@ -11,7 +11,7 @@ import { AnimationController, ENHANCED_ANIMATION_MAPPING } from '../utils/animat
 import type { AISimulant } from '../types'
 
 // Example: Basic Animation Controller Usage
-export function BasicAnimationControllerExample() {
+function BasicAnimationControllerExample() {
   // Mock simulant data
   const simulant: AISimulant = {
     id: 'example-simulant',
@@ -94,7 +94,7 @@ export function BasicAnimationControllerExample() {
 }
 
 // Example: Advanced Animation Controller with Custom Logic
-export function AdvancedAnimationControllerExample() {
+function AdvancedAnimationControllerExample() {
   const simulant: AISimulant = {
     id: 'advanced-simulant',
     name: 'Advanced Simulant',
@@ -223,7 +223,7 @@ export function AdvancedAnimationControllerExample() {
 }
 
 // Example: Animation Mapping Customization
-export function CustomAnimationMappingExample() {
+function CustomAnimationMappingExample() {
   // Example of how to extend or customize the animation mapping
   const customMapping = {
     ...ENHANCED_ANIMATION_MAPPING,
@@ -279,7 +279,7 @@ export function CustomAnimationMappingExample() {
 }
 
 // Example: Performance Optimization Strategies
-export function PerformanceOptimizedExample() {
+function PerformanceOptimizedExample() {
   const simulant: AISimulant = {
     id: 'performance-simulant',
     name: 'Performance Simulant',

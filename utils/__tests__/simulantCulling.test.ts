@@ -14,13 +14,8 @@ const createMockSimulant = (id: string, x: number, y: number, z: number): AISimu
   position: { x, y, z },
   status: 'active',
   lastAction: 'Standing peacefully',
-  personality: 'friendly',
-  knowledge: [],
-  relationships: new Map(),
-  goals: [],
-  memories: [],
-  createdAt: Date.now(),
-  lastActiveAt: Date.now()
+  conversationHistory: [],
+  geminiSessionId: `session_${id}`
 });
 
 describe('SimulantCullingSystem', () => {

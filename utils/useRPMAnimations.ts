@@ -7,10 +7,11 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useAnimations } from '@react-three/drei'
-import { AnimationClip, AnimationMixer, AnimationAction, Object3D } from 'three'
+import { AnimationClip, AnimationMixer, AnimationAction, Object3D, Event as ThreeEvent } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { animationErrorHandler } from './animationErrorHandler'
 import { fallbackAnimationSystem } from './animationFallbackSystem'
+import type { TypedGLTF } from '../types/animations'
 
 /**
  * Animation playback options
@@ -133,7 +134,7 @@ const LOD_PRESETS = {
  * @returns Animation manager with enhanced functionality
  */
 export function useRPMAnimations(
-  gltf: GLTF | any, // Allow for extended GLTF types from useGLTF
+  gltf: TypedGLTF | GLTF, // Allow for both typed and standard GLTF
   externalClips: Map<string, AnimationClip> = new Map(),
   options: UseRPMAnimationsOptions = {}
 ): AnimationManager {
@@ -476,7 +477,13 @@ export function useRPMAnimations(
   // Auto-play animation on mount
   useEffect(() => {
     if (config.autoPlay && availableAnimations.includes(config.autoPlay)) {
+      console.log(`🎬 Auto-playing animation: ${config.autoPlay}`)
       playAnimation(config.autoPlay)
+    } else if (config.autoPlay && availableAnimations.length > 0) {
+      // Fallback to first available animation if autoPlay animation not found
+      const fallbackAnimation = availableAnimations[0]
+      console.log(`🎬 Auto-play fallback to: ${fallbackAnimation}`)
+      playAnimation(fallbackAnimation)
     }
   }, [config.autoPlay, availableAnimations, playAnimation])
   
@@ -484,7 +491,7 @@ export function useRPMAnimations(
   useEffect(() => {
     if (!mixer) return
     
-    const handleFinished = (event: any) => {
+    const handleFinished = (event: ThreeEvent & { action?: AnimationAction }) => {
       const action = event.action as AnimationAction
       const animationName = action.getClip().name
       
@@ -506,7 +513,7 @@ export function useRPMAnimations(
       }
     }
     
-    const handleLoop = (event: any) => {
+    const handleLoop = (event: ThreeEvent & { action?: AnimationAction }) => {
       const action = event.action as AnimationAction
       const animationName = action.getClip().name
       

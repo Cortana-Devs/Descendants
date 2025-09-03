@@ -1,5 +1,7 @@
-import { AnimationClip } from 'three'
+import { AnimationClip, Group } from 'three'
+import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import React from 'react'
 
 /**
  * Validation result for loaded GLTF assets
@@ -45,7 +47,7 @@ export interface AnimationAssetCache {
   avatars: Map<string, GLTF>
   clips: Map<string, AnimationClip>
   metadata: Map<string, AssetMetadata>
-  loadingPromises: Map<string, Promise<any>>
+  loadingPromises: Map<string, Promise<GLTF>>
 }
 
 /**
@@ -87,7 +89,7 @@ export enum AnimationLoadError {
 export interface AnimationError extends Error {
   type: AnimationLoadError
   path: string
-  details?: any
+  details?: Record<string, unknown>
 }
 
 /**
@@ -113,3 +115,132 @@ export type {
   BlendAnimation,
   StateTransition
 } from '../utils/animationController'
+
+/**
+ * Performance metrics interface for monitoring system performance
+ */
+export interface PerformanceMetrics {
+  frameRate: number
+  averageFrameRate: number
+  memoryUsage: number
+  animationLoad: number
+  activeAnimations: number
+  droppedFrames: number
+  renderTime: number
+  lastUpdateTime: number
+}
+
+/**
+ * Quality level configuration for performance adaptation
+ */
+export interface QualityLevel {
+  name: 'high' | 'medium' | 'low'
+  maxAnimatedSimulants: number
+  animationUpdateRate: number
+  crossFadeDuration: number
+  enableBlending: boolean
+  lodDistances: {
+    high: number
+    medium: number
+    low: number
+    cull: number
+  }
+  cullingDistance: number
+  enableParticles: boolean
+  shadowQuality: 'high' | 'medium' | 'low' | 'off'
+}
+
+/**
+ * Animation event callback types
+ */
+export type AnimationEventCallback = (event: {
+  type: 'started' | 'finished' | 'loop' | 'error'
+  animationName: string
+  simulantId?: string
+  timestamp: number
+}) => void
+
+export type PerformanceChangeCallback = (metrics: PerformanceMetrics) => void
+
+export type QualityChangeCallback = (quality: QualityLevel) => void
+
+export type ErrorCallback = (error: AnimationError) => void
+
+/**
+ * Loading component props for dynamic imports
+ */
+export interface LoadingProps {
+  /** Loading state */
+  loaded?: boolean
+  /** Loading progress (0-1) */
+  progress?: number
+  /** Optional loading message */
+  message?: string
+  /** Error if loading failed */
+  error?: Error
+}
+
+/**
+ * WebGL context capabilities
+ */
+export interface WebGLContextType {
+  maxTextureSize: number
+  maxVertexAttribs: number
+  maxVaryingVectors: number
+  maxFragmentUniforms: number
+  maxVertexUniforms: number
+  renderer: string
+  vendor: string
+  version: string
+  shadingLanguageVersion: string
+}
+
+/**
+ * Animation mixer interface
+ */
+export interface AnimationMixerInterface {
+  mixer: THREE.AnimationMixer
+  actions: Map<string, THREE.AnimationAction>
+  activeAction?: THREE.AnimationAction
+  update: (deltaTime: number) => void
+  play: (animationName: string, options?: PlayOptions) => void
+  stop: () => void
+  dispose: () => void
+}
+
+/**
+ * Hook options for various animation hooks
+ */
+export interface HookOptions {
+  /** Enable logging for debugging */
+  enableLogging?: boolean
+  /** Enable performance monitoring */
+  enablePerformanceMonitoring?: boolean
+  /** Custom error handler */
+  onError?: ErrorCallback
+  /** Custom animation event handler */
+  onAnimationEvent?: AnimationEventCallback
+  /** Animation start callback */
+  onAnimationStart?: (name: string) => void
+  /** Animation end callback */
+  onAnimationEnd?: (name: string) => void
+  /** Animation loop callback */
+  onAnimationLoop?: (name: string) => void
+  /** Transition complete callback */
+  onTransitionComplete?: (from: string, to: string) => void
+  /** State change callback */
+  onStateChange?: (state: string) => void
+  /** Transition start callback */
+  onTransitionStart?: (from: string, to: string) => void
+  /** Quality change callback */
+  onQualityChange?: QualityChangeCallback
+  /** Performance warning callback */
+  onPerformanceWarning?: (warning: string) => void
+}
+
+/**
+ * GLTF asset with proper typing for scene
+ */
+export interface TypedGLTF extends Omit<GLTF, 'scene'> {
+  scene: Group
+}

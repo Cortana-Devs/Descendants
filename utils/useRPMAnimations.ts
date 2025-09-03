@@ -437,9 +437,7 @@ export function useRPMAnimations(
     const preset = LOD_PRESETS[level]
     updateFrequencyRef.current = preset.updateFrequency
     
-    if (config.enableLogging) {
-      console.log(`🎯 Set LOD level to: ${level}`)
-    }
+
   }, [config])
   
   /**
